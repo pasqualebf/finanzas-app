@@ -112,13 +112,22 @@ class _CuentaDetalleScreenState extends State<CuentaDetalleScreen> {
 
     bool esManual = (widget.accountData['type'] == 'manual') || (widget.accountData['institutionName'] == 'Manual');
     
-    if (esManual) {
+    // FIX: Bilt también debe actualizar saldo manual si se usa esta opción
+    bool esBilt = (widget.accountData['name']?.toString().toUpperCase().contains("BILT") ?? false);
+
+    if (esManual || esBilt) {
       final cuentaRef = userRef.collection('Cuentas').doc(widget.accountId);
       FirebaseFirestore.instance.runTransaction((transaction) async {
         final snapshot = await transaction.get(cuentaRef);
         double saldo = (snapshot.data()?['balance'] ?? 0.0).toDouble();
+        
+        // Lógica de saldo:
+        // Si es tarjeta de crédito (Bilt): Gasto aumenta deuda (saldo negativo), Pago disminuye deuda.
+        // Pero Bilt suele mostrar saldo negativo como deuda. 
+        // Asumiremos: Gasto = Restar. Ingreso = Sumar.
         if (tipo == 'income') saldo += monto;
         else saldo -= monto;
+        
         transaction.update(cuentaRef, {'balance': saldo});
       });
     }
@@ -166,15 +175,16 @@ class _CuentaDetalleScreenState extends State<CuentaDetalleScreen> {
     final cuentaRef = userRef.collection('Cuentas').doc(widget.accountId);
 
     bool esManual = (widget.accountData['type'] == 'manual') || (widget.accountData['institutionName'] == 'Manual');
+    bool esBilt = (widget.accountData['name']?.toString().toUpperCase().contains("BILT") ?? false);
 
-    if (esManual) {
+    if (esManual || esBilt) {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final cuentaSnap = await transaction.get(cuentaRef);
         if (!cuentaSnap.exists) return;
         double saldo = (cuentaSnap.data()?['balance'] ?? 0).toDouble();
         double monto = (movData['amount'] ?? 0).toDouble();
         String tipo = movData['type'] ?? 'expense';
-        // Si borramos un gasto, el saldo sube. Si borramos ingreso, baja.
+        // Revertir: Si borramos gasto (resta), sumamos. Si borramos ingreso (suma), restamos.
         if (tipo == 'income') saldo -= monto; else saldo += monto;
         transaction.update(cuentaRef, {'balance': saldo});
         transaction.delete(movRef);
@@ -227,9 +237,13 @@ class _CuentaDetalleScreenState extends State<CuentaDetalleScreen> {
                   stream: FirebaseFirestore.instance.collection('artifacts').doc('finanzas_app')
                       .collection('users').doc(user!.uid).collection('Cuentas').doc(widget.accountId).snapshots(),
                   builder: (context, snapshot) {
-                    double saldo = widget.accountData['balance'];
+                    // FIX: Null safety para balance
+                    double saldo = (widget.accountData['balance'] ?? 0.0).toDouble();
                     if (snapshot.hasData && snapshot.data!.exists) {
-                        saldo = (snapshot.data!.get('balance') ?? 0).toDouble();
+                        final data = snapshot.data!.data() as Map<String, dynamic>?;
+                        if (data != null) {
+                          saldo = (data['balance'] ?? 0).toDouble();
+                        }
                     }
                     return Text(
                       currencyFormat.format(saldo),

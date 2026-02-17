@@ -172,6 +172,10 @@ exports.importarMovimientosTexto = onCall(async (request) => {
     // Pago (Negativo) -> Restar (Menos negativo / Más positivo).
     if (totalImportado !== 0) {
         const accountRef = userRef.collection('Cuentas').doc(accountId);
+        
+        // FIX: Antes esto solo se ejecutaba si la cuenta era manual.
+        // Ahora, como estamos usando esto para Bilt (que es "linked" pero rota), forzamos la actualización siempre.
+        // Esto arregla el bug donde el balance se quedaba en 0.
         batch.update(accountRef, { 
             balance: admin.firestore.FieldValue.increment(-totalImportado) 
         });
